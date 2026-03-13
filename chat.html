@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>iframe chat widget</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="chat-shell">
+      <header class="chat-header">
+        <div>
+          <p class="eyebrow">Embedded Live Chat</p>
+          <h1>상담 채팅</h1>
+        </div>
+        <div class="header-meta">
+          <span id="room-label">room: waiting</span>
+          <span id="presence-label">참여자 0명</span>
+        </div>
+      </header>
+
+      <main class="chat-main">
+        <section class="message-panel">
+          <div id="status-banner" class="status-banner">
+            부모 페이지에서 닉네임을 전달하면 자동으로 입장합니다.
+          </div>
+          <div id="message-list" class="message-list"></div>
+        </section>
+
+        <aside class="sidebar">
+          <div class="card">
+            <h2>내 상태</h2>
+            <p id="nickname-label">닉네임 대기 중</p>
+            <form id="nickname-form" class="nickname-form">
+              <input
+                id="nickname-input"
+                type="text"
+                maxlength="20"
+                placeholder="닉네임을 직접 입력하세요"
+                autocomplete="off"
+              />
+              <button id="nickname-button" type="submit">입장</button>
+            </form>
+            <p id="nickname-help" class="card-help">
+              부모 페이지에서 닉네임이 없으면 여기서 직접 입력할 수 있습니다.
+            </p>
+          </div>
+          <div class="card">
+            <h2>참여자</h2>
+            <div id="user-list" class="user-list"></div>
+            <p id="empty-users" class="empty-copy">아직 참여자가 없습니다.</p>
+          </div>
+        </aside>
+      </main>
+
+      <footer class="composer-panel">
+        <form id="chat-form" class="composer-form">
+          <input
+            id="message-input"
+            type="text"
+            maxlength="300"
+            placeholder="메시지를 입력하세요"
+            autocomplete="off"
+            disabled
+          />
+          <button id="send-button" type="submit" disabled>전송</button>
+        </form>
+        <p class="composer-help">
+          지원 인터페이스: <strong>window.postMessage</strong>,
+          <strong>window.setChatUser</strong>
+        </p>
+      </footer>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

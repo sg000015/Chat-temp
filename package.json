@@ -1,0 +1,13 @@
+{
+  "name": "chat",
+  "version": "1.0.0",
+  "private": true,
+  "main": "chat.html",
+  "scripts": {
+    "preview": "npx serve ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "Embeddable iframe chat widget with parent-provided nickname"
+}
