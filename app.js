@@ -33,6 +33,8 @@ const emptyUsers = document.getElementById("empty-users");
 const chatForm = document.getElementById("chat-form");
 const messageInput = document.getElementById("message-input");
 const sendButton = document.getElementById("send-button");
+const callCommandPattern = /^\/call\s+(.+)$/i;
+const whisperCommandPattern = /^\/w\s+(\S+)\s+"([\s\S]+)"$/i;
 
 const state = {
   sessionId:
@@ -51,6 +53,9 @@ const state = {
   liveMessages: [],
   heartbeatTimerId: null,
   pendingPresenceCleanup: new Set(),
+  notifiedCallMessageIds: new Set(),
+  activeNicknames: new Set(),
+  audioContext: null,
   joined: false,
 };
 
@@ -134,6 +139,8 @@ function clearSubscriptions() {
 
   state.initialMessages = [];
   state.liveMessages = [];
+  state.notifiedCallMessageIds.clear();
+  state.activeNicknames.clear();
 }
 
 function getEstimatedServerNow() {
@@ -146,11 +153,11 @@ function normalizeMessages(snapshot, minimumCreatedAt = 0) {
   snapshot.forEach((messageSnapshot) => {
     const entry = { id: messageSnapshot.key, ...messageSnapshot.val() };
 
-    if (entry.type === "system") {
+    if (!entry.createdAt || entry.createdAt < minimumCreatedAt) {
       return;
     }
 
-    if (!entry.createdAt || entry.createdAt < minimumCreatedAt) {
+    if (!isMessageVisible(entry)) {
       return;
     }
 
@@ -158,6 +165,16 @@ function normalizeMessages(snapshot, minimumCreatedAt = 0) {
   });
 
   return entries;
+}
+
+function isMessageVisible(entry) {
+  if (entry.type !== "whisper") {
+    return true;
+  }
+
+  return (
+    entry.nickname === state.nickname || entry.targetNickname === state.nickname
+  );
 }
 
 function renderMergedMessages() {
@@ -172,6 +189,131 @@ function renderMergedMessages() {
   );
 
   renderMessages(entries);
+}
+
+function ensureAudioContext() {
+  if (state.audioContext) {
+    return state.audioContext;
+  }
+
+  const AudioContextClass =
+    window.AudioContext || window.webkitAudioContext;
+
+  if (!AudioContextClass) {
+    return null;
+  }
+
+  state.audioContext = new AudioContextClass();
+  return state.audioContext;
+}
+
+async function unlockAudioContext() {
+  const audioContext = ensureAudioContext();
+
+  if (!audioContext || audioContext.state === "running") {
+    return;
+  }
+
+  try {
+    await audioContext.resume();
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+function playCallAlert() {
+  const audioContext = ensureAudioContext();
+
+  if (!audioContext || audioContext.state !== "running") {
+    return;
+  }
+
+  const now = audioContext.currentTime;
+  const masterGain = audioContext.createGain();
+  masterGain.gain.setValueAtTime(0.0001, now);
+  masterGain.gain.exponentialRampToValueAtTime(0.18, now + 0.02);
+  masterGain.gain.exponentialRampToValueAtTime(0.0001, now + 1.15);
+  masterGain.connect(audioContext.destination);
+
+  [
+    { frequency: 880, start: now, duration: 0.23 },
+    { frequency: 659.25, start: now + 0.32, duration: 0.42 },
+  ].forEach((note) => {
+    const oscillator = audioContext.createOscillator();
+    const noteGain = audioContext.createGain();
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(note.frequency, note.start);
+
+    noteGain.gain.setValueAtTime(0.0001, note.start);
+    noteGain.gain.exponentialRampToValueAtTime(1, note.start + 0.02);
+    noteGain.gain.exponentialRampToValueAtTime(
+      0.0001,
+      note.start + note.duration,
+    );
+
+    oscillator.connect(noteGain);
+    noteGain.connect(masterGain);
+    oscillator.start(note.start);
+    oscillator.stop(note.start + note.duration);
+  });
+}
+
+function notifyTargetedCalls(entries) {
+  const targetedCalls = entries.filter(
+    (entry) =>
+      entry.type === "system" &&
+      entry.systemType === "call" &&
+      entry.targetNickname === state.nickname &&
+      !state.notifiedCallMessageIds.has(entry.id),
+  );
+
+  if (targetedCalls.length === 0) {
+    return;
+  }
+
+  targetedCalls.forEach((entry) => {
+    state.notifiedCallMessageIds.add(entry.id);
+  });
+
+  unlockAudioContext().finally(() => {
+    playCallAlert();
+  });
+}
+
+function parseCallCommand(text) {
+  const matched = text.match(callCommandPattern);
+
+  if (!matched) {
+    return null;
+  }
+
+  const targetNickname = matched[1].trim().slice(0, 20);
+  return targetNickname || null;
+}
+
+function parseWhisperCommand(text) {
+  const matched = text.match(whisperCommandPattern);
+
+  if (!matched) {
+    return null;
+  }
+
+  const targetNickname = matched[1].trim().slice(0, 20);
+  const whisperText = matched[2].trim().slice(0, 300);
+
+  if (!targetNickname || !whisperText) {
+    return null;
+  }
+
+  return {
+    targetNickname,
+    whisperText,
+  };
+}
+
+function hasActiveNickname(nickname) {
+  return state.activeNicknames.has(nickname);
 }
 
 function isPresenceActive(entry) {
@@ -252,6 +394,10 @@ function renderMessages(entries) {
       classes.push("system");
     }
 
+    if (entry.type === "whisper") {
+      classes.push("whisper");
+    }
+
     if (entry.nickname && entry.nickname === state.nickname) {
       classes.push("mine");
     }
@@ -260,8 +406,13 @@ function renderMessages(entries) {
 
     const author = document.createElement("span");
     author.className = "message-author";
-    author.textContent =
-      entry.type === "system" ? "시스템:" : `${entry.nickname}:`;
+    if (entry.type === "system") {
+      author.textContent = "관리자:";
+    } else if (entry.type === "whisper") {
+      author.textContent = `${entry.nickname}님의 귓속말 :`;
+    } else {
+      author.textContent = `${entry.nickname}:`;
+    }
 
     const text = document.createElement("span");
     text.className = "message-text";
@@ -317,7 +468,10 @@ function subscribeRoom() {
     startAt(state.joinedAt),
   );
   onValue(state.liveMessageQueryRef, (snapshot) => {
-    state.liveMessages = normalizeMessages(snapshot, state.joinedAt);
+    const nextLiveMessages = normalizeMessages(snapshot, state.joinedAt);
+
+    notifyTargetedCalls(nextLiveMessages);
+    state.liveMessages = nextLiveMessages;
     renderMergedMessages();
   });
 
@@ -333,7 +487,15 @@ function subscribeRoom() {
     });
 
     cleanupStalePresence(entries);
-    renderUsers(entries.filter((entry) => isPresenceActive(entry)));
+
+    const activeEntries = entries.filter((entry) => isPresenceActive(entry));
+    state.activeNicknames = new Set(
+      activeEntries
+        .map((entry) => entry.nickname)
+        .filter((nickname) => typeof nickname === "string" && nickname),
+    );
+
+    renderUsers(activeEntries);
   });
 }
 
@@ -431,12 +593,63 @@ chatForm.addEventListener("submit", async (event) => {
   messageInput.focus();
 
   try {
-    await push(ref(database, roomPath("messages")), {
-      type: "chat",
-      nickname: state.nickname,
-      text,
-      createdAt: serverTimestamp(),
-    });
+    const whisperPayload = parseWhisperCommand(text);
+    const targetNickname = parseCallCommand(text);
+
+    if (
+      text.startsWith("/w") &&
+      !whisperPayload
+    ) {
+      showStatus('귓속말은 /w {닉네임} "할말" 형식으로 입력하세요.');
+      return;
+    }
+
+    if (whisperPayload) {
+      if (whisperPayload.targetNickname === state.nickname) {
+        showStatus("본인에게 귓속말을 보낼 수 없습니다.");
+        return;
+      }
+
+      if (!hasActiveNickname(whisperPayload.targetNickname)) {
+        showStatus("접속 중인 사용자가 아닙니다.");
+        return;
+      }
+
+      await push(ref(database, roomPath("messages")), {
+        type: "whisper",
+        nickname: state.nickname,
+        targetNickname: whisperPayload.targetNickname,
+        text: whisperPayload.whisperText,
+        createdAt: serverTimestamp(),
+      });
+    } else if (targetNickname) {
+      if (targetNickname === state.nickname) {
+        showStatus("본인은 호출할 수 없습니다.");
+        return;
+      }
+
+      if (!hasActiveNickname(targetNickname)) {
+        showStatus("접속 중인 사용자가 아닙니다.");
+        return;
+      }
+
+      await push(ref(database, roomPath("messages")), {
+        type: "system",
+        systemType: "call",
+        nickname: state.nickname,
+        callerNickname: state.nickname,
+        targetNickname,
+        text: `'${state.nickname}' 님께서 ${targetNickname} 님을 호출하였습니다.`,
+        createdAt: serverTimestamp(),
+      });
+    } else {
+      await push(ref(database, roomPath("messages")), {
+        type: "chat",
+        nickname: state.nickname,
+        text,
+        createdAt: serverTimestamp(),
+      });
+    }
 
     await refreshOwnPresence();
   } catch (error) {
@@ -459,6 +672,12 @@ function teardownPresence() {
 
 window.addEventListener("beforeunload", teardownPresence);
 window.addEventListener("pagehide", teardownPresence);
+window.addEventListener("pointerdown", () => {
+  unlockAudioContext();
+});
+window.addEventListener("keydown", () => {
+  unlockAudioContext();
+});
 
 onValue(ref(database, ".info/serverTimeOffset"), (snapshot) => {
   const offset = snapshot.val();
