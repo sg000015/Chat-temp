@@ -34,7 +34,7 @@ const chatForm = document.getElementById("chat-form");
 const messageInput = document.getElementById("message-input");
 const sendButton = document.getElementById("send-button");
 const callCommandPattern = /^\/call\s+(.+)$/i;
-const whisperCommandPattern = /^\/w\s+(\S+)\s+"([\s\S]+)"$/i;
+const whisperCommandPattern = /^\/w\s+(\S+)\s+([\s\S]+)$/i;
 
 const state = {
   sessionId:
@@ -51,6 +51,7 @@ const state = {
   ownPresenceRef: null,
   initialMessages: [],
   liveMessages: [],
+  localMessages: [],
   heartbeatTimerId: null,
   pendingPresenceCleanup: new Set(),
   notifiedCallMessageIds: new Set(),
@@ -95,13 +96,18 @@ function formatTime(dateValue) {
 
 function showStatus(message) {
   if (!message) {
-    statusBanner.textContent = "";
-    statusBanner.classList.add("hidden");
     return;
   }
 
-  statusBanner.textContent = message;
-  statusBanner.classList.remove("hidden");
+  state.localMessages.push({
+    id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    type: "system",
+    systemType: "local-notice",
+    text: message,
+    createdAt: Date.now(),
+  });
+
+  renderMergedMessages();
 }
 
 function setComposerEnabled(enabled) {
@@ -139,6 +145,7 @@ function clearSubscriptions() {
 
   state.initialMessages = [];
   state.liveMessages = [];
+  state.localMessages = [];
   state.notifiedCallMessageIds.clear();
   state.activeNicknames.clear();
 }
@@ -180,7 +187,7 @@ function isMessageVisible(entry) {
 function renderMergedMessages() {
   const mergedEntries = new Map();
 
-  [...state.initialMessages, ...state.liveMessages].forEach((entry) => {
+  [...state.initialMessages, ...state.liveMessages, ...state.localMessages].forEach((entry) => {
     mergedEntries.set(entry.id, entry);
   });
 
@@ -389,6 +396,7 @@ function renderMessages(entries) {
   entries.forEach((entry) => {
     const item = document.createElement("article");
     const classes = ["message"];
+    const isCenteredNotice = entry.type === "system";
 
     if (entry.type === "system") {
       classes.push("system");
@@ -398,31 +406,39 @@ function renderMessages(entries) {
       classes.push("whisper");
     }
 
-    if (entry.nickname && entry.nickname === state.nickname) {
+    if (!isCenteredNotice && entry.nickname && entry.nickname === state.nickname) {
       classes.push("mine");
     }
 
-    item.className = classes.join(" ");
-
-    const author = document.createElement("span");
-    author.className = "message-author";
-    if (entry.type === "system") {
-      author.textContent = "관리자:";
-    } else if (entry.type === "whisper") {
-      author.textContent = `${entry.nickname}님의 귓속말 :`;
-    } else {
-      author.textContent = `${entry.nickname}:`;
+    if (isCenteredNotice) {
+      classes.push("centered");
     }
+
+    item.className = classes.join(" ");
 
     const text = document.createElement("span");
     text.className = "message-text";
     text.textContent = entry.text;
 
-    const time = document.createElement("span");
-    time.className = "message-time";
-    time.textContent = formatTime(entry.createdAt);
+    if (isCenteredNotice) {
+      item.appendChild(text);
+    } else {
+      const author = document.createElement("span");
+      author.className = "message-author";
 
-    item.append(author, text, time);
+      if (entry.type === "whisper") {
+        author.textContent = `${entry.nickname}님의 귓속말 :`;
+      } else {
+        author.textContent = `${entry.nickname}:`;
+      }
+
+      const time = document.createElement("span");
+      time.className = "message-time";
+      time.textContent = formatTime(entry.createdAt);
+
+      item.append(author, text, time);
+    }
+
     messageList.appendChild(item);
   });
 
@@ -600,7 +616,7 @@ chatForm.addEventListener("submit", async (event) => {
       text.startsWith("/w") &&
       !whisperPayload
     ) {
-      showStatus('귓속말은 /w {닉네임} "할말" 형식으로 입력하세요.');
+      showStatus("귓속말은 /w {닉네임} {할말} 형식으로 입력하세요.");
       return;
     }
 
@@ -686,7 +702,7 @@ onValue(ref(database, ".info/serverTimeOffset"), (snapshot) => {
 
 setComposerEnabled(false);
 setNicknameModalVisible(false);
-showStatus("");
+statusBanner.classList.add("hidden");
 
 if (hasPlaceholderConfig()) {
   showStatus("Firebase 설정이 필요합니다.");
