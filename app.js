@@ -1,12 +1,14 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import {
   getDatabase,
+  limitToLast,
   off,
   onDisconnect,
   onValue,
   orderByChild,
   push,
   query,
+  startAt,
   serverTimestamp,
   ref,
   remove,
@@ -40,9 +42,15 @@ const state = {
   nickname: "",
   roomId: chatSettings.defaultRoomId,
   joinedAt: 0,
-  messageQueryRef: null,
+  serverTimeOffset: 0,
+  initialMessageQueryRef: null,
+  liveMessageQueryRef: null,
   presenceQueryRef: null,
   ownPresenceRef: null,
+  initialMessages: [],
+  liveMessages: [],
+  heartbeatTimerId: null,
+  pendingPresenceCleanup: new Set(),
   joined: false,
 };
 
@@ -109,15 +117,128 @@ function setNicknameModalVisible(visible) {
 }
 
 function clearSubscriptions() {
-  if (state.messageQueryRef) {
-    off(state.messageQueryRef);
-    state.messageQueryRef = null;
+  if (state.initialMessageQueryRef) {
+    off(state.initialMessageQueryRef);
+    state.initialMessageQueryRef = null;
+  }
+
+  if (state.liveMessageQueryRef) {
+    off(state.liveMessageQueryRef);
+    state.liveMessageQueryRef = null;
   }
 
   if (state.presenceQueryRef) {
     off(state.presenceQueryRef);
     state.presenceQueryRef = null;
   }
+
+  state.initialMessages = [];
+  state.liveMessages = [];
+}
+
+function getEstimatedServerNow() {
+  return Date.now() + state.serverTimeOffset;
+}
+
+function normalizeMessages(snapshot, minimumCreatedAt = 0) {
+  const entries = [];
+
+  snapshot.forEach((messageSnapshot) => {
+    const entry = { id: messageSnapshot.key, ...messageSnapshot.val() };
+
+    if (entry.type === "system") {
+      return;
+    }
+
+    if (!entry.createdAt || entry.createdAt < minimumCreatedAt) {
+      return;
+    }
+
+    entries.push(entry);
+  });
+
+  return entries;
+}
+
+function renderMergedMessages() {
+  const mergedEntries = new Map();
+
+  [...state.initialMessages, ...state.liveMessages].forEach((entry) => {
+    mergedEntries.set(entry.id, entry);
+  });
+
+  const entries = [...mergedEntries.values()].sort(
+    (left, right) => left.createdAt - right.createdAt,
+  );
+
+  renderMessages(entries);
+}
+
+function isPresenceActive(entry) {
+  if (entry.id === state.sessionId) {
+    return true;
+  }
+
+  if (typeof entry.updatedAt !== "number") {
+    return false;
+  }
+
+  return (
+    getEstimatedServerNow() - entry.updatedAt <=
+    chatSettings.stalePresenceThresholdMs
+  );
+}
+
+function stopPresenceHeartbeat() {
+  if (!state.heartbeatTimerId) {
+    return;
+  }
+
+  window.clearInterval(state.heartbeatTimerId);
+  state.heartbeatTimerId = null;
+}
+
+async function refreshOwnPresence() {
+  if (!state.ownPresenceRef || !state.joined) {
+    return;
+  }
+
+  await set(state.ownPresenceRef, {
+    sessionId: state.sessionId,
+    nickname: state.nickname,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+function startPresenceHeartbeat() {
+  stopPresenceHeartbeat();
+
+  state.heartbeatTimerId = window.setInterval(() => {
+    refreshOwnPresence().catch((error) => {
+      console.error(error);
+    });
+  }, chatSettings.presenceHeartbeatIntervalMs);
+}
+
+function cleanupStalePresence(entries) {
+  entries.forEach((entry) => {
+    const shouldCleanup =
+      entry.id !== state.sessionId &&
+      !isPresenceActive(entry) &&
+      !state.pendingPresenceCleanup.has(entry.id);
+
+    if (!shouldCleanup) {
+      return;
+    }
+
+    state.pendingPresenceCleanup.add(entry.id);
+
+    remove(ref(database, `${roomPath("presence")}/${entry.id}`)).catch((error) => {
+      console.error(error);
+    }).finally(() => {
+      state.pendingPresenceCleanup.delete(entry.id);
+    });
+  });
 }
 
 function renderMessages(entries) {
@@ -180,28 +301,24 @@ function roomPath(path) {
 function subscribeRoom() {
   clearSubscriptions();
 
-  state.messageQueryRef = query(
+  state.initialMessageQueryRef = query(
     ref(database, roomPath("messages")),
     orderByChild("createdAt"),
+    limitToLast(chatSettings.initialMessageLimit),
   );
-  onValue(state.messageQueryRef, (snapshot) => {
-    const entries = [];
+  onValue(state.initialMessageQueryRef, (snapshot) => {
+    state.initialMessages = normalizeMessages(snapshot);
+    renderMergedMessages();
+  });
 
-    snapshot.forEach((messageSnapshot) => {
-      const entry = { id: messageSnapshot.key, ...messageSnapshot.val() };
-
-      if (entry.type === "system") {
-        return;
-      }
-
-      if (!entry.createdAt || entry.createdAt < state.joinedAt) {
-        return;
-      }
-
-      entries.push(entry);
-    });
-
-    renderMessages(entries);
+  state.liveMessageQueryRef = query(
+    ref(database, roomPath("messages")),
+    orderByChild("createdAt"),
+    startAt(state.joinedAt),
+  );
+  onValue(state.liveMessageQueryRef, (snapshot) => {
+    state.liveMessages = normalizeMessages(snapshot, state.joinedAt);
+    renderMergedMessages();
   });
 
   state.presenceQueryRef = query(
@@ -215,7 +332,8 @@ function subscribeRoom() {
       entries.push({ id: presenceSnapshot.key, ...presenceSnapshot.val() });
     });
 
-    renderUsers(entries);
+    cleanupStalePresence(entries);
+    renderUsers(entries.filter((entry) => isPresenceActive(entry)));
   });
 }
 
@@ -229,13 +347,10 @@ async function registerPresence() {
     `${roomPath("presence")}/${state.sessionId}`,
   );
 
-  await set(state.ownPresenceRef, {
-    sessionId: state.sessionId,
-    nickname: state.nickname,
-    updatedAt: serverTimestamp(),
-  });
+  await refreshOwnPresence();
 
   await onDisconnect(state.ownPresenceRef).remove();
+  startPresenceHeartbeat();
 }
 
 async function activateUser(payload) {
@@ -256,12 +371,9 @@ async function activateUser(payload) {
     return;
   }
 
-  const changedIdentity =
-    state.nickname !== nickname || state.roomId !== roomId;
-
   state.nickname = nickname;
   state.roomId = roomId || chatSettings.defaultRoomId;
-  state.joinedAt = Date.now();
+  state.joinedAt = getEstimatedServerNow();
   state.joined = true;
 
   showStatus("");
@@ -326,13 +438,7 @@ chatForm.addEventListener("submit", async (event) => {
       createdAt: serverTimestamp(),
     });
 
-    if (state.ownPresenceRef) {
-      await set(state.ownPresenceRef, {
-        sessionId: state.sessionId,
-        nickname: state.nickname,
-        updatedAt: serverTimestamp(),
-      });
-    }
+    await refreshOwnPresence();
   } catch (error) {
     console.error(error);
     messageInput.value = text;
@@ -341,11 +447,22 @@ chatForm.addEventListener("submit", async (event) => {
   }
 });
 
-window.addEventListener("beforeunload", () => {
+function teardownPresence() {
+  stopPresenceHeartbeat();
+
   if (state.ownPresenceRef) {
     remove(state.ownPresenceRef);
   }
+
   clearSubscriptions();
+}
+
+window.addEventListener("beforeunload", teardownPresence);
+window.addEventListener("pagehide", teardownPresence);
+
+onValue(ref(database, ".info/serverTimeOffset"), (snapshot) => {
+  const offset = snapshot.val();
+  state.serverTimeOffset = typeof offset === "number" ? offset : 0;
 });
 
 setComposerEnabled(false);

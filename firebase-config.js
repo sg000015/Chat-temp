@@ -12,4 +12,7 @@ export const chatSettings = {
   collectionName: "chatRooms",
   defaultRoomId: "default-room",
   allowedParentOrigins: ["*"],
+  initialMessageLimit: 20,
+  presenceHeartbeatIntervalMs: 20000,
+  stalePresenceThresholdMs: 60000,
 };
