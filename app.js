@@ -315,21 +315,29 @@ chatForm.addEventListener("submit", async (event) => {
     return;
   }
 
-  await push(ref(database, roomPath("messages")), {
-    type: "chat",
-    nickname: state.nickname,
-    text,
-    createdAt: serverTimestamp(),
-  });
-
   messageInput.value = "";
   messageInput.focus();
-  if (state.ownPresenceRef) {
-    await set(state.ownPresenceRef, {
-      sessionId: state.sessionId,
+
+  try {
+    await push(ref(database, roomPath("messages")), {
+      type: "chat",
       nickname: state.nickname,
-      updatedAt: serverTimestamp(),
+      text,
+      createdAt: serverTimestamp(),
     });
+
+    if (state.ownPresenceRef) {
+      await set(state.ownPresenceRef, {
+        sessionId: state.sessionId,
+        nickname: state.nickname,
+        updatedAt: serverTimestamp(),
+      });
+    }
+  } catch (error) {
+    console.error(error);
+    messageInput.value = text;
+    messageInput.focus();
+    showStatus("메시지 전송에 실패했습니다.");
   }
 });
 

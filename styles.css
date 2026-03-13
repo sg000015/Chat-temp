@@ -25,7 +25,8 @@ body {
 }
 
 body {
-  height: 100vh;
+  height: 100%;
+  min-height: 100dvh;
   overflow: hidden;
   font-family: "Pretendard", "Segoe UI", sans-serif;
   color: var(--text);
@@ -41,7 +42,7 @@ body {
 
 .chat-shell {
   width: 100%;
-  height: 100vh;
+  height: 100dvh;
   display: grid;
   grid-template-rows: 1fr auto;
   gap: 4px;
@@ -66,8 +67,9 @@ p {
 .chat-main {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 110px;
+  grid-template-columns: minmax(0, 1fr) clamp(72px, 24vw, 110px);
   gap: 4px;
+  overflow: hidden;
 }
 
 .message-panel {
@@ -162,7 +164,7 @@ p {
 
 .card h2 {
   margin-bottom: 4px;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .participants-title-row {
@@ -174,7 +176,7 @@ p {
 
 .participants-title-row span {
   color: var(--muted);
-  font-size: 10px;
+  font-size: 9px;
 }
 
 .user-list {
@@ -191,7 +193,7 @@ p {
   border-radius: 6px;
   border: 1px solid rgba(88, 62, 36, 0.08);
   background: var(--panel-strong);
-  font-size: 10px;
+  font-size: 9px;
   line-height: 1.2;
 }
 
@@ -207,7 +209,7 @@ p {
 
 .composer-form {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 4px;
   align-items: center;
 }
@@ -251,6 +253,8 @@ input:disabled {
   justify-content: center;
   background: rgba(40, 28, 17, 0.2);
   padding: 16px;
+  overflow: auto;
+  z-index: 9999;
 }
 
 .nickname-modal.hidden {
@@ -258,33 +262,15 @@ input:disabled {
 }
 
 .nickname-dialog {
-  width: min(280px, 100%);
+  width: min(280px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
   border-radius: 10px;
   padding: 12px;
   display: grid;
   gap: 8px;
+  margin: auto;
 }
 
 .nickname-dialog h2 {
   font-size: 13px;
-}
-
-@media (max-width: 840px) {
-  body {
-    overflow: auto;
-  }
-
-  .chat-shell {
-    height: auto;
-    min-height: 100vh;
-    padding: 4px;
-  }
-
-  .chat-main {
-    grid-template-columns: 1fr;
-  }
-
-  .composer-form {
-    grid-template-columns: 1fr;
-  }
 }
