@@ -56,6 +56,8 @@ const chatForm = document.getElementById("chat-form");
 const messageInput = document.getElementById("message-input");
 const attachmentInput = document.getElementById("attachment-input");
 const attachmentButton = document.getElementById("attachment-button");
+const scrollUpButton = document.getElementById("scroll-up-button");
+const scrollDownButton = document.getElementById("scroll-down-button");
 const sendButton = document.getElementById("send-button");
 const callCommandPattern = /^\/call\s+(.+)$/i;
 const whisperCommandPattern = /^\/w\s+(\S+)\s+([\s\S]+)$/i;
@@ -113,6 +115,27 @@ function allowedOrigin(origin) {
   }
 
   return chatSettings.allowedParentOrigins.includes(origin);
+}
+
+function shouldEnableMobileScrollControls() {
+  const userAgent = navigator.userAgent || "";
+  const userAgentData = navigator.userAgentData;
+  const isMobileUserAgent =
+    /Android|iPhone|iPad|iPod|Mobile|Windows Phone/i.test(userAgent) ||
+    (userAgentData && userAgentData.mobile === true);
+  const hasTouchInput =
+    window.matchMedia("(pointer: coarse)").matches ||
+    navigator.maxTouchPoints > 0 ||
+    "ontouchstart" in window;
+
+  return isMobileUserAgent && hasTouchInput;
+}
+
+function updateRuntimeEnvironmentClasses() {
+  document.body.classList.toggle(
+    "mobile-scroll-controls-enabled",
+    shouldEnableMobileScrollControls(),
+  );
 }
 
 function formatTime(dateValue) {
@@ -236,17 +259,17 @@ function getFileExtension(fileName) {
 }
 
 function isAllowedAttachment(file) {
-  const extension = getFileExtension(file?.name);
+  const extension = getFileExtension(file && file.name);
 
   if (!extension || !allowedAttachmentExtensions.has(extension)) {
     return false;
   }
 
-  if (blockedAttachmentMimeTypes.has(file?.type)) {
+  if (blockedAttachmentMimeTypes.has(file && file.type)) {
     return false;
   }
 
-  return file?.type ? file.type.startsWith("image/") : true;
+  return file && file.type ? file.type.startsWith("image/") : true;
 }
 
 function getEstimatedServerNow() {
@@ -311,6 +334,24 @@ function renderMergedMessages() {
   );
 
   renderMessages(entries);
+}
+
+function scrollMessagesBy(offset) {
+  messageList.scrollBy({
+    top: offset,
+    behavior: "smooth",
+  });
+}
+
+function scrollMessagesToLatest() {
+  messageList.scrollTo({
+    top: messageList.scrollHeight,
+    behavior: "smooth",
+  });
+}
+
+function scrollStepSize() {
+  return Math.max(120, Math.round(messageList.clientHeight * 0.65));
 }
 
 function ensureAudioContext() {
@@ -626,7 +667,7 @@ async function deleteExpiredAttachmentEntry(entry) {
       try {
         await deleteObject(storageRef(storage, entry.storagePath));
       } catch (error) {
-        if (error?.code !== "storage/object-not-found") {
+        if (!error || error.code !== "storage/object-not-found") {
           throw error;
         }
       }
@@ -902,6 +943,14 @@ attachmentInput.addEventListener("change", async (event) => {
   await uploadAttachment(file);
 });
 
+scrollUpButton.addEventListener("click", () => {
+  scrollMessagesBy(-scrollStepSize());
+});
+
+scrollDownButton.addEventListener("click", () => {
+  scrollMessagesBy(scrollStepSize());
+});
+
 chatForm.addEventListener("submit", async (event) => {
   event.preventDefault();
 
@@ -1002,15 +1051,20 @@ window.addEventListener("pointerdown", () => {
 window.addEventListener("keydown", () => {
   unlockAudioContext();
 });
+window.addEventListener("resize", updateRuntimeEnvironmentClasses);
 
 onValue(ref(database, ".info/serverTimeOffset"), (snapshot) => {
   const offset = snapshot.val();
   state.serverTimeOffset = typeof offset === "number" ? offset : 0;
 });
 
+updateRuntimeEnvironmentClasses();
 setComposerEnabled(false);
 setNicknameModalVisible(false);
-statusBanner.classList.add("hidden");
+
+if (statusBanner) {
+  statusBanner.classList.add("hidden");
+}
 
 if (hasPlaceholderConfig()) {
   showStatus("Firebase 설정이 필요합니다.");

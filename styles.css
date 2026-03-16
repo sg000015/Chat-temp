@@ -46,23 +46,9 @@ body {
   height: 100%;
   min-height: 100%;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: 1fr auto;
   gap: 3px;
   padding: 3px;
-}
-
-.chat-header-tools {
-  display: flex;
-  justify-content: flex-start;
-  align-items: flex-start;
-  min-height: 0;
-  padding: 3px 6px 1px;
-}
-
-.chat-header-tools button {
-  min-height: 24px;
-  padding: 4px 9px;
-  font-size: 10px;
 }
 
 .card,
@@ -92,9 +78,30 @@ p {
   border-radius: 8px;
   padding: 3px;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr);
   min-height: 0;
   overflow: hidden;
+}
+
+.message-panel-tools {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 0;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.message-panel-actions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.message-panel-actions button {
+  min-height: 24px;
+  padding: 4px 9px;
+  font-size: 10px;
 }
 
 .status-banner {
@@ -126,6 +133,21 @@ p {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
   touch-action: pan-y;
+}
+
+.message-scroll-controls {
+  display: none;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+}
+
+.message-scroll-controls button {
+  min-width: 30px;
+  min-height: 24px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  box-shadow: none;
 }
 
 .message {
@@ -431,21 +453,9 @@ input:disabled {
   .chat-shell {
     height: 100%;
     min-height: 100%;
-    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-rows: minmax(0, 1fr) auto;
     gap: 6px;
     padding: 6px;
-  }
-
-  .chat-header-tools {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    padding: 6px 6px 4px;
-    background: linear-gradient(
-      180deg,
-      var(--bg-top) 0%,
-      rgba(229, 219, 201, 0.92) 100%
-    );
   }
 
   .chat-main {
@@ -453,11 +463,36 @@ input:disabled {
     gap: 6px;
   }
 
-  .message-panel {
-    min-height: 0;
+  .message-panel-tools {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    padding: 2px 0 4px;
+    background: linear-gradient(
+      180deg,
+      var(--panel) 0%,
+      rgba(252, 248, 241, 0.94) 100%
+    );
   }
 
-  .chat-header-tools button {
+  .message-scroll-controls {
+    display: none;
+  }
+
+  body.mobile-scroll-controls-enabled .message-scroll-controls {
+    display: flex;
+  }
+
+  .message-scroll-controls button {
+    min-width: 30px;
+    min-height: 24px;
+    padding: 2px 6px;
+    font-size: 10px;
+    border-radius: 8px;
+    box-shadow: none;
+  }
+
+  .message-panel-actions button {
     min-height: 24px;
     padding: 4px 8px;
     font-size: 10px;

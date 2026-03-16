@@ -8,22 +8,39 @@
   </head>
   <body>
     <div class="chat-shell">
-      <div class="chat-header-tools">
-        <input
-          id="attachment-input"
-          type="file"
-          accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
-          hidden
-          disabled
-        />
-        <button id="attachment-button" type="button" disabled>
-          이미지 첨부
-        </button>
-      </div>
-
       <main class="chat-main">
         <section class="message-panel">
           <div id="status-banner" class="status-banner hidden"></div>
+          <div class="message-panel-tools">
+            <div class="message-panel-actions">
+              <input
+                id="attachment-input"
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
+                hidden
+                disabled
+              />
+              <button id="attachment-button" type="button" disabled>
+                이미지 첨부
+              </button>
+            </div>
+            <div class="message-scroll-controls" aria-label="채팅 스크롤 버튼">
+              <button
+                id="scroll-up-button"
+                type="button"
+                aria-label="위로 스크롤"
+              >
+                ▲
+              </button>
+              <button
+                id="scroll-down-button"
+                type="button"
+                aria-label="아래로 스크롤"
+              >
+                ▼
+              </button>
+            </div>
+          </div>
           <div id="message-list" class="message-list"></div>
         </section>
 
