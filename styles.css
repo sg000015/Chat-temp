@@ -31,9 +31,11 @@ body {
   font-family: "Pretendard", "Segoe UI", sans-serif;
   color: var(--text);
   background:
-    radial-gradient(circle at top left,
+    radial-gradient(
+      circle at top left,
       rgba(255, 196, 137, 0.38),
-      transparent 26%),
+      transparent 26%
+    ),
     radial-gradient(circle at right, rgba(205, 100, 56, 0.16), transparent 30%),
     linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
 }

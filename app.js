@@ -187,7 +187,11 @@ function isMessageVisible(entry) {
 function renderMergedMessages() {
   const mergedEntries = new Map();
 
-  [...state.initialMessages, ...state.liveMessages, ...state.localMessages].forEach((entry) => {
+  [
+    ...state.initialMessages,
+    ...state.liveMessages,
+    ...state.localMessages,
+  ].forEach((entry) => {
     mergedEntries.set(entry.id, entry);
   });
 
@@ -203,8 +207,7 @@ function ensureAudioContext() {
     return state.audioContext;
   }
 
-  const AudioContextClass =
-    window.AudioContext || window.webkitAudioContext;
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
 
   if (!AudioContextClass) {
     return null;
@@ -382,11 +385,13 @@ function cleanupStalePresence(entries) {
 
     state.pendingPresenceCleanup.add(entry.id);
 
-    remove(ref(database, `${roomPath("presence")}/${entry.id}`)).catch((error) => {
-      console.error(error);
-    }).finally(() => {
-      state.pendingPresenceCleanup.delete(entry.id);
-    });
+    remove(ref(database, `${roomPath("presence")}/${entry.id}`))
+      .catch((error) => {
+        console.error(error);
+      })
+      .finally(() => {
+        state.pendingPresenceCleanup.delete(entry.id);
+      });
   });
 }
 
@@ -406,7 +411,11 @@ function renderMessages(entries) {
       classes.push("whisper");
     }
 
-    if (!isCenteredNotice && entry.nickname && entry.nickname === state.nickname) {
+    if (
+      !isCenteredNotice &&
+      entry.nickname &&
+      entry.nickname === state.nickname
+    ) {
       classes.push("mine");
     }
 
@@ -612,10 +621,7 @@ chatForm.addEventListener("submit", async (event) => {
     const whisperPayload = parseWhisperCommand(text);
     const targetNickname = parseCallCommand(text);
 
-    if (
-      text.startsWith("/w") &&
-      !whisperPayload
-    ) {
+    if (text.startsWith("/w") && !whisperPayload) {
       showStatus("귓속말은 /w {닉네임} {할말} 형식으로 입력하세요.");
       return;
     }
@@ -655,7 +661,7 @@ chatForm.addEventListener("submit", async (event) => {
         nickname: state.nickname,
         callerNickname: state.nickname,
         targetNickname,
-        text: `'${state.nickname}' 님께서 ${targetNickname} 님을 호출하였습니다.`,
+        text: `${state.nickname} 님께서 ${targetNickname} 님을 호출하였습니다.`,
         createdAt: serverTimestamp(),
       });
     } else {
