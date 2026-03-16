@@ -573,7 +573,7 @@ function renderMessages(entries) {
 
         const meta = document.createElement("span");
         meta.className = "message-attachment-meta";
-        meta.textContent = `${entry.fileName || "이미지"} · ${formatFileSize(entry.size)}`;
+        meta.textContent = formatFileSize(entry.size);
 
         imageLink.appendChild(image);
         body.append(imageLink, meta);
