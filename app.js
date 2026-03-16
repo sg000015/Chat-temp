@@ -49,6 +49,11 @@ const nicknameModal = document.getElementById("nickname-modal");
 const nicknameForm = document.getElementById("nickname-form");
 const nicknameInput = document.getElementById("nickname-input");
 const nicknameButton = document.getElementById("nickname-button");
+const nicknameActionMenu = document.getElementById("nickname-action-menu");
+const nicknameWhisperButton = document.getElementById(
+  "nickname-whisper-button",
+);
+const nicknameCallButton = document.getElementById("nickname-call-button");
 const messageList = document.getElementById("message-list");
 const userList = document.getElementById("user-list");
 const emptyUsers = document.getElementById("empty-users");
@@ -96,6 +101,7 @@ const state = {
   audioContext: null,
   composerEnabled: false,
   uploadingAttachment: false,
+  activeNicknameActionTarget: "",
   joined: false,
 };
 
@@ -199,6 +205,38 @@ function setNicknameModalVisible(visible) {
       nicknameInput.focus();
     }, 0);
   }
+}
+
+function hideNicknameActionMenu() {
+  state.activeNicknameActionTarget = "";
+
+  if (!nicknameActionMenu) {
+    return;
+  }
+
+  nicknameActionMenu.classList.add("hidden");
+  nicknameActionMenu.style.left = "";
+  nicknameActionMenu.style.top = "";
+}
+
+function showNicknameActionMenu(nickname, anchorElement) {
+  if (!nicknameActionMenu || !anchorElement) {
+    return;
+  }
+
+  state.activeNicknameActionTarget = nickname;
+  nicknameActionMenu.classList.remove("hidden");
+
+  const rect = anchorElement.getBoundingClientRect();
+  const menuWidth = 120;
+  const left = Math.max(
+    8,
+    Math.min(rect.left, window.innerWidth - menuWidth - 8),
+  );
+  const top = Math.min(rect.bottom + 6, window.innerHeight - 76);
+
+  nicknameActionMenu.style.left = `${left}px`;
+  nicknameActionMenu.style.top = `${top}px`;
 }
 
 function clearSubscriptions() {
@@ -352,6 +390,34 @@ function scrollMessagesToLatest() {
 
 function scrollStepSize() {
   return Math.max(120, Math.round(messageList.clientHeight * 0.65));
+}
+
+async function sendCallMessage(targetNickname) {
+  if (!state.joined) {
+    return;
+  }
+
+  if (targetNickname === state.nickname) {
+    showStatus("본인은 호출할 수 없습니다.");
+    return;
+  }
+
+  if (!hasActiveNickname(targetNickname)) {
+    showStatus("접속 중인 사용자가 아닙니다.");
+    return;
+  }
+
+  await push(ref(database, roomPath("messages")), {
+    type: "system",
+    systemType: "call",
+    nickname: state.nickname,
+    callerNickname: state.nickname,
+    targetNickname,
+    text: `${state.nickname} 님께서 ${targetNickname} 님을 호출하였습니다.`,
+    createdAt: serverTimestamp(),
+  });
+
+  await refreshOwnPresence();
 }
 
 function ensureAudioContext() {
@@ -594,6 +660,14 @@ function renderMessages(entries) {
         author.textContent = `${entry.nickname}님의 귓속말 :`;
       } else {
         author.textContent = `${entry.nickname}:`;
+      }
+
+      if (entry.nickname) {
+        author.classList.add("is-actionable");
+        author.addEventListener("click", (event) => {
+          event.stopPropagation();
+          showNicknameActionMenu(entry.nickname, author);
+        });
       }
 
       const time = document.createElement("span");
@@ -943,6 +1017,31 @@ attachmentInput.addEventListener("change", async (event) => {
   await uploadAttachment(file);
 });
 
+nicknameWhisperButton.addEventListener("click", () => {
+  if (!state.activeNicknameActionTarget) {
+    return;
+  }
+
+  messageInput.value = `/w ${state.activeNicknameActionTarget} `;
+  messageInput.focus();
+  hideNicknameActionMenu();
+});
+
+nicknameCallButton.addEventListener("click", async () => {
+  if (!state.activeNicknameActionTarget) {
+    return;
+  }
+
+  try {
+    await sendCallMessage(state.activeNicknameActionTarget);
+  } catch (error) {
+    console.error(error);
+    showStatus("호출에 실패했습니다.");
+  } finally {
+    hideNicknameActionMenu();
+  }
+});
+
 scrollUpButton.addEventListener("click", () => {
   scrollMessagesBy(-scrollStepSize());
 });
@@ -970,6 +1069,7 @@ chatForm.addEventListener("submit", async (event) => {
   try {
     const whisperPayload = parseWhisperCommand(text);
     const targetNickname = parseCallCommand(text);
+    let nextComposerValue = "";
 
     if (text.startsWith("/w") && !whisperPayload) {
       showStatus("귓속말은 /w {닉네임} {할말} 형식으로 입력하세요.");
@@ -994,6 +1094,8 @@ chatForm.addEventListener("submit", async (event) => {
         text: whisperPayload.whisperText,
         createdAt: serverTimestamp(),
       });
+
+      nextComposerValue = `/w ${whisperPayload.targetNickname} `;
     } else if (targetNickname) {
       if (targetNickname === state.nickname) {
         showStatus("본인은 호출할 수 없습니다.");
@@ -1024,6 +1126,8 @@ chatForm.addEventListener("submit", async (event) => {
     }
 
     await refreshOwnPresence();
+    messageInput.value = nextComposerValue;
+    messageInput.focus();
   } catch (error) {
     console.error(error);
     messageInput.value = text;
@@ -1045,6 +1149,15 @@ function teardownPresence() {
 
 window.addEventListener("beforeunload", teardownPresence);
 window.addEventListener("pagehide", teardownPresence);
+document.addEventListener("pointerdown", (event) => {
+  if (
+    nicknameActionMenu &&
+    !nicknameActionMenu.classList.contains("hidden") &&
+    !nicknameActionMenu.contains(event.target)
+  ) {
+    hideNicknameActionMenu();
+  }
+});
 window.addEventListener("pointerdown", () => {
   unlockAudioContext();
 });
@@ -1052,6 +1165,7 @@ window.addEventListener("keydown", () => {
   unlockAudioContext();
 });
 window.addEventListener("resize", updateRuntimeEnvironmentClasses);
+messageList.addEventListener("scroll", hideNicknameActionMenu);
 
 onValue(ref(database, ".info/serverTimeOffset"), (snapshot) => {
   const offset = snapshot.val();
