@@ -716,11 +716,19 @@ function renderUsers(entries) {
 
   entries.forEach((entry) => {
     const element = document.createElement("div");
-    element.className = "user-item";
+    element.className = "user-item is-actionable";
     element.textContent =
       entry.nickname === state.nickname
         ? `${entry.nickname} (나)`
         : entry.nickname;
+
+    if (entry.nickname) {
+      element.addEventListener("click", (event) => {
+        event.stopPropagation();
+        showNicknameActionMenu(entry.nickname, element);
+      });
+    }
+
     userList.appendChild(element);
   });
 }

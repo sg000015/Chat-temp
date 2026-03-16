@@ -362,6 +362,15 @@ p {
   line-height: 1.2;
 }
 
+.user-item.is-actionable {
+  cursor: pointer;
+}
+
+.user-item.is-actionable:hover {
+  border-color: rgba(141, 59, 31, 0.2);
+  color: var(--accent-deep);
+}
+
 .empty-copy {
   color: var(--muted);
   font-size: 10px;
