@@ -522,6 +522,10 @@ function renderMessages(entries) {
       classes.push("whisper");
     }
 
+    if (entry.type === "image") {
+      classes.push("has-image");
+    }
+
     if (
       !isCenteredNotice &&
       entry.nickname &&
@@ -559,11 +563,8 @@ function renderMessages(entries) {
       body.className = "message-body";
 
       if (entry.type === "image" && entry.imageUrl) {
-        const imageLink = document.createElement("a");
-        imageLink.className = "message-image-link";
-        imageLink.href = entry.imageUrl;
-        imageLink.target = "_blank";
-        imageLink.rel = "noreferrer";
+        const imageFrame = document.createElement("div");
+        imageFrame.className = "message-image-link";
 
         const image = document.createElement("img");
         image.className = "message-image";
@@ -575,8 +576,8 @@ function renderMessages(entries) {
         meta.className = "message-attachment-meta";
         meta.textContent = formatFileSize(entry.size);
 
-        imageLink.appendChild(image);
-        body.append(imageLink, meta);
+        imageFrame.appendChild(image);
+        body.append(imageFrame, meta);
       } else {
         const text = document.createElement("span");
         text.className = "message-text";
