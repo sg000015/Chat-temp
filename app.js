@@ -1,5 +1,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import {
+  endAt,
+  get,
   getDatabase,
   limitToLast,
   off,
@@ -14,10 +16,30 @@ import {
   remove,
   set,
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js";
+import {
+  deleteObject,
+  getDownloadURL,
+  getStorage,
+  ref as storageRef,
+  uploadBytes,
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js";
 import { firebaseConfig, chatSettings } from "./firebase-config.js";
 
 const app = initializeApp(firebaseConfig);
 const database = getDatabase(app);
+const storage = getStorage(app);
+
+const attachmentMaxBytes = Number.isFinite(chatSettings.attachmentMaxBytes)
+  ? chatSettings.attachmentMaxBytes
+  : 1024 * 1024;
+const attachmentTtlMs = Number.isFinite(chatSettings.attachmentTtlMs)
+  ? chatSettings.attachmentTtlMs
+  : 3 * 24 * 60 * 60 * 1000;
+const expiredAttachmentCleanupIntervalMs = Number.isFinite(
+  chatSettings.expiredAttachmentCleanupIntervalMs,
+)
+  ? chatSettings.expiredAttachmentCleanupIntervalMs
+  : 5 * 60 * 1000;
 
 const statusBanner = document.getElementById("status-banner");
 const participantsMiniCount = document.getElementById(
@@ -32,9 +54,20 @@ const userList = document.getElementById("user-list");
 const emptyUsers = document.getElementById("empty-users");
 const chatForm = document.getElementById("chat-form");
 const messageInput = document.getElementById("message-input");
+const attachmentInput = document.getElementById("attachment-input");
+const attachmentButton = document.getElementById("attachment-button");
 const sendButton = document.getElementById("send-button");
 const callCommandPattern = /^\/call\s+(.+)$/i;
 const whisperCommandPattern = /^\/w\s+(\S+)\s+([\s\S]+)$/i;
+const blockedAttachmentMimeTypes = new Set(["image/svg+xml"]);
+const allowedAttachmentExtensions = new Set([
+  "png",
+  "jpg",
+  "jpeg",
+  "gif",
+  "webp",
+  "bmp",
+]);
 
 const state = {
   sessionId:
@@ -53,10 +86,14 @@ const state = {
   liveMessages: [],
   localMessages: [],
   heartbeatTimerId: null,
+  expiredAttachmentCleanupTimerId: null,
   pendingPresenceCleanup: new Set(),
+  pendingAttachmentCleanup: new Set(),
   notifiedCallMessageIds: new Set(),
   activeNicknames: new Set(),
   audioContext: null,
+  composerEnabled: false,
+  uploadingAttachment: false,
   joined: false,
 };
 
@@ -111,8 +148,22 @@ function showStatus(message) {
 }
 
 function setComposerEnabled(enabled) {
+  state.composerEnabled = enabled;
+  syncComposerState();
+}
+
+function syncComposerState() {
+  const enabled = state.composerEnabled && !state.uploadingAttachment;
   messageInput.disabled = !enabled;
   sendButton.disabled = !enabled;
+  attachmentButton.disabled = !enabled;
+  attachmentInput.disabled = !state.composerEnabled;
+}
+
+function setAttachmentUploading(uploading) {
+  state.uploadingAttachment = uploading;
+  attachmentButton.textContent = uploading ? "업로드 중..." : "이미지";
+  syncComposerState();
 }
 
 function setNicknameModalVisible(visible) {
@@ -150,6 +201,54 @@ function clearSubscriptions() {
   state.activeNicknames.clear();
 }
 
+function formatFileSize(size) {
+  if (!Number.isFinite(size) || size <= 0) {
+    return "0KB";
+  }
+
+  if (size >= 1024 * 1024) {
+    const sizeInMb = size / (1024 * 1024);
+    const roundedSizeInMb = Number.isInteger(sizeInMb)
+      ? sizeInMb
+      : Number(sizeInMb.toFixed(2));
+    return `${roundedSizeInMb}MB`;
+  }
+
+  return `${Math.max(1, Math.round(size / 1024))}KB`;
+}
+
+function sanitizeFileName(fileName) {
+  return String(fileName || "image")
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .slice(0, 80);
+}
+
+function resetAttachmentInput() {
+  attachmentInput.value = "";
+}
+
+function getFileExtension(fileName) {
+  const parts = String(fileName || "")
+    .toLowerCase()
+    .split(".");
+  return parts.length > 1 ? parts.pop() : "";
+}
+
+function isAllowedAttachment(file) {
+  const extension = getFileExtension(file?.name);
+
+  if (!extension || !allowedAttachmentExtensions.has(extension)) {
+    return false;
+  }
+
+  if (blockedAttachmentMimeTypes.has(file?.type)) {
+    return false;
+  }
+
+  return file?.type ? file.type.startsWith("image/") : true;
+}
+
 function getEstimatedServerNow() {
   return Date.now() + state.serverTimeOffset;
 }
@@ -168,6 +267,10 @@ function normalizeMessages(snapshot, minimumCreatedAt = 0) {
       return;
     }
 
+    if (isAttachmentExpired(entry)) {
+      return;
+    }
+
     entries.push(entry);
   });
 
@@ -181,6 +284,14 @@ function isMessageVisible(entry) {
 
   return (
     entry.nickname === state.nickname || entry.targetNickname === state.nickname
+  );
+}
+
+function isAttachmentExpired(entry) {
+  return (
+    entry.type === "image" &&
+    typeof entry.expiresAt === "number" &&
+    entry.expiresAt <= getEstimatedServerNow()
   );
 }
 
@@ -425,11 +536,10 @@ function renderMessages(entries) {
 
     item.className = classes.join(" ");
 
-    const text = document.createElement("span");
-    text.className = "message-text";
-    text.textContent = entry.text;
-
     if (isCenteredNotice) {
+      const text = document.createElement("span");
+      text.className = "message-text";
+      text.textContent = entry.text;
       item.appendChild(text);
     } else {
       const author = document.createElement("span");
@@ -445,7 +555,36 @@ function renderMessages(entries) {
       time.className = "message-time";
       time.textContent = formatTime(entry.createdAt);
 
-      item.append(author, text, time);
+      const body = document.createElement("div");
+      body.className = "message-body";
+
+      if (entry.type === "image" && entry.imageUrl) {
+        const imageLink = document.createElement("a");
+        imageLink.className = "message-image-link";
+        imageLink.href = entry.imageUrl;
+        imageLink.target = "_blank";
+        imageLink.rel = "noreferrer";
+
+        const image = document.createElement("img");
+        image.className = "message-image";
+        image.src = entry.imageUrl;
+        image.alt = entry.fileName || "첨부 이미지";
+        image.loading = "lazy";
+
+        const meta = document.createElement("span");
+        meta.className = "message-attachment-meta";
+        meta.textContent = `${entry.fileName || "이미지"} · ${formatFileSize(entry.size)}`;
+
+        imageLink.appendChild(image);
+        body.append(imageLink, meta);
+      } else {
+        const text = document.createElement("span");
+        text.className = "message-text";
+        text.textContent = entry.text;
+        body.appendChild(text);
+      }
+
+      item.append(author, body, time);
     }
 
     messageList.appendChild(item);
@@ -472,6 +611,86 @@ function renderUsers(entries) {
 
 function roomPath(path) {
   return `${chatSettings.collectionName}/${state.roomId}/${path}`;
+}
+
+async function deleteExpiredAttachmentEntry(entry) {
+  if (!entry.id || state.pendingAttachmentCleanup.has(entry.id)) {
+    return;
+  }
+
+  state.pendingAttachmentCleanup.add(entry.id);
+
+  try {
+    if (entry.storagePath) {
+      try {
+        await deleteObject(storageRef(storage, entry.storagePath));
+      } catch (error) {
+        if (error?.code !== "storage/object-not-found") {
+          throw error;
+        }
+      }
+    }
+
+    await remove(ref(database, `${roomPath("messages")}/${entry.id}`));
+  } catch (error) {
+    console.error(error);
+  } finally {
+    state.pendingAttachmentCleanup.delete(entry.id);
+  }
+}
+
+async function cleanupExpiredAttachments() {
+  if (!state.joined) {
+    return;
+  }
+
+  try {
+    const expiredSnapshot = await get(
+      query(
+        ref(database, roomPath("messages")),
+        orderByChild("expiresAt"),
+        startAt(1),
+        endAt(getEstimatedServerNow()),
+      ),
+    );
+
+    const expiredEntries = [];
+
+    expiredSnapshot.forEach((messageSnapshot) => {
+      const entry = { id: messageSnapshot.key, ...messageSnapshot.val() };
+
+      if (isAttachmentExpired(entry)) {
+        expiredEntries.push(entry);
+      }
+    });
+
+    for (const entry of expiredEntries) {
+      await deleteExpiredAttachmentEntry(entry);
+    }
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+function stopExpiredAttachmentCleanup() {
+  if (!state.expiredAttachmentCleanupTimerId) {
+    return;
+  }
+
+  window.clearInterval(state.expiredAttachmentCleanupTimerId);
+  state.expiredAttachmentCleanupTimerId = null;
+}
+
+function startExpiredAttachmentCleanup() {
+  stopExpiredAttachmentCleanup();
+  cleanupExpiredAttachments().catch((error) => {
+    console.error(error);
+  });
+  state.expiredAttachmentCleanupTimerId = window.setInterval(() => {
+    cleanupExpiredAttachments().catch((error) => {
+      console.error(error);
+    });
+  }, expiredAttachmentCleanupIntervalMs);
 }
 
 function subscribeRoom() {
@@ -538,6 +757,74 @@ async function registerPresence() {
 
   await onDisconnect(state.ownPresenceRef).remove();
   startPresenceHeartbeat();
+  startExpiredAttachmentCleanup();
+}
+
+async function uploadAttachment(file) {
+  if (!state.joined) {
+    showStatus("입장 후 이미지를 업로드할 수 있습니다.");
+    resetAttachmentInput();
+    return;
+  }
+
+  if (!file) {
+    return;
+  }
+
+  if (!isAllowedAttachment(file)) {
+    showStatus(
+      "PNG, JPG, GIF, WEBP, BMP 이미지만 업로드할 수 있습니다. SVG는 허용되지 않습니다.",
+    );
+    resetAttachmentInput();
+    return;
+  }
+
+  if (file.size > attachmentMaxBytes) {
+    showStatus(
+      `이미지는 ${formatFileSize(attachmentMaxBytes)} 이하만 업로드할 수 있습니다.`,
+    );
+    resetAttachmentInput();
+    return;
+  }
+
+  setAttachmentUploading(true);
+
+  try {
+    const now = getEstimatedServerNow();
+    const storagePath = `${chatSettings.collectionName}/${state.roomId}/attachments/${now}-${state.sessionId}-${sanitizeFileName(file.name)}`;
+    const fileRef = storageRef(storage, storagePath);
+
+    await uploadBytes(fileRef, file, {
+      contentType: file.type,
+      customMetadata: {
+        roomId: state.roomId,
+        uploadedBy: state.nickname,
+        expiresAt: String(now + attachmentTtlMs),
+      },
+    });
+
+    const imageUrl = await getDownloadURL(fileRef);
+
+    await push(ref(database, roomPath("messages")), {
+      type: "image",
+      nickname: state.nickname,
+      fileName: file.name,
+      size: file.size,
+      contentType: file.type,
+      imageUrl,
+      storagePath,
+      createdAt: serverTimestamp(),
+      expiresAt: now + attachmentTtlMs,
+    });
+
+    await refreshOwnPresence();
+  } catch (error) {
+    console.error(error);
+    showStatus("이미지 업로드에 실패했습니다.");
+  } finally {
+    setAttachmentUploading(false);
+    resetAttachmentInput();
+  }
 }
 
 async function activateUser(payload) {
@@ -599,6 +886,19 @@ nicknameForm.addEventListener("submit", (event) => {
     nickname,
     roomId: state.roomId || chatSettings.defaultRoomId,
   });
+});
+
+attachmentButton.addEventListener("click", () => {
+  if (!state.composerEnabled || state.uploadingAttachment) {
+    return;
+  }
+
+  attachmentInput.click();
+});
+
+attachmentInput.addEventListener("change", async (event) => {
+  const [file] = event.target.files || [];
+  await uploadAttachment(file);
 });
 
 chatForm.addEventListener("submit", async (event) => {
@@ -684,6 +984,7 @@ chatForm.addEventListener("submit", async (event) => {
 
 function teardownPresence() {
   stopPresenceHeartbeat();
+  stopExpiredAttachmentCleanup();
 
   if (state.ownPresenceRef) {
     remove(state.ownPresenceRef);

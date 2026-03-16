@@ -53,6 +53,7 @@
 3. Web 앱을 추가합니다.
 4. Realtime Database를 생성합니다.
 5. `firebase-config.js`에 발급된 값을 넣습니다.
+6. 이미지 첨부를 쓰려면 Firebase Storage도 활성화합니다.
 
 예시:
 
@@ -85,7 +86,26 @@ export const firebaseConfig = {
 
 주의: 운영 전환 시에는 반드시 인증 또는 도메인 제한 규칙으로 강화해야 합니다.
 
-## 3. 부모 페이지에서 iframe으로 호출하는 방법
+이미지 첨부는 메시지 메타데이터만 Realtime Database에 저장하고, 실제 파일은 Firebase Storage에 저장합니다.
+
+## 3. Firebase Storage 규칙 예시
+
+테스트용 예시는 아래처럼 시작할 수 있습니다.
+
+```txt
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /chatRooms/{roomId}/attachments/{allPaths=**} {
+      allow read, write: if true;
+    }
+  }
+}
+```
+
+주의: 이것도 테스트용입니다. 운영에서는 인증 또는 업로드 경로 제한이 필요합니다.
+
+## 4. 부모 페이지에서 iframe으로 호출하는 방법
 
 부모 페이지는 이 프로젝트를 배포한 URL을 iframe `src`로 사용합니다.
 
@@ -152,7 +172,7 @@ window.setChatUser({
 });
 ```
 
-## 4. 부모 허용 도메인 제한
+## 5. 부모 허용 도메인 제한
 
 `firebase-config.js`의 `allowedParentOrigins`를 수정하면 `postMessage`를 받을 부모 도메인을 제한할 수 있습니다.
 
@@ -171,7 +191,7 @@ export const chatSettings = {
 
 테스트 중에는 `"*"`로 두고, 운영에서는 실제 도메인만 넣는 것이 맞습니다.
 
-## 5. GitHub Pages 배포
+## 6. GitHub Pages 배포
 
 1. GitHub 저장소를 만듭니다.
 2. 현재 파일들을 푸시합니다.
@@ -185,7 +205,7 @@ export const chatSettings = {
 https://your-id.github.io/chat/chat.html
 ```
 
-## 6. S3 배포
+## 7. S3 배포
 
 정적 웹 호스팅으로도 배포 가능합니다.
 
@@ -206,6 +226,14 @@ npm run preview
 ## 다음에 꼭 해야 하는 것
 
 1. `firebase-config.js` 값 입력
-2. Firestore 보안 규칙 최소한으로라도 설정
+2. Realtime Database와 Firebase Storage 보안 규칙 설정
 3. `allowedParentOrigins`를 실제 부모 도메인으로 제한
 4. 운영용으로는 스팸 방지 정책 추가
+
+## 이미지 첨부 동작
+
+- 이미지 파일만 업로드 가능
+- 1MB 이하 파일만 허용
+- 앱이 열릴 때와 주기적으로 만료 파일을 삭제 시도
+
+정확히 72시간 시점에 무조건 삭제되어야 한다면, 클라이언트 정리만으로는 부족할 수 있습니다. 그 경우에는 Cloud Storage Lifecycle 또는 스케줄된 Cloud Function을 함께 쓰는 것이 맞습니다.

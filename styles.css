@@ -178,6 +178,33 @@ p {
   word-break: break-word;
 }
 
+.message-body {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.message-image-link {
+  display: inline-block;
+  max-width: min(220px, 100%);
+}
+
+.message-image {
+  display: block;
+  max-width: 100%;
+  max-height: 180px;
+  border-radius: 8px;
+  border: 1px solid rgba(88, 62, 36, 0.1);
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.message-attachment-meta {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.2;
+}
+
 .sidebar {
   min-height: 0;
   display: block;
@@ -248,6 +275,18 @@ p {
   align-items: center;
 }
 
+.composer-input-wrap {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 input,
 button {
   font: inherit;
@@ -307,4 +346,14 @@ input:disabled {
 
 .nickname-dialog h2 {
   font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .composer-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .composer-actions {
+    justify-content: space-between;
+  }
 }

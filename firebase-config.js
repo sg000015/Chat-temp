@@ -15,4 +15,7 @@ export const chatSettings = {
   initialMessageLimit: 30,
   presenceHeartbeatIntervalMs: 20000,
   stalePresenceThresholdMs: 60000,
+  attachmentMaxBytes: 1024 * 1024,
+  attachmentTtlMs: 3 * 24 * 60 * 60 * 1000,
+  expiredAttachmentCleanupIntervalMs: 5 * 60 * 1000,
 };

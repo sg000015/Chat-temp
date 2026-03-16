@@ -28,15 +28,29 @@
 
       <footer class="composer-panel">
         <form id="chat-form" class="composer-form">
-          <input
-            id="message-input"
-            type="text"
-            maxlength="300"
-            placeholder="메시지를 입력하세요"
-            autocomplete="off"
-            disabled
-          />
-          <button id="send-button" type="submit" disabled>전송</button>
+          <div class="composer-input-wrap">
+            <input
+              id="message-input"
+              type="text"
+              maxlength="300"
+              placeholder="메시지를 입력하세요"
+              autocomplete="off"
+              disabled
+            />
+          </div>
+          <div class="composer-actions">
+            <input
+              id="attachment-input"
+              type="file"
+              accept="image/png,image/jpeg,image/gif,image/webp,image/bmp"
+              hidden
+              disabled
+            />
+            <button id="attachment-button" type="button" disabled>
+              이미지
+            </button>
+            <button id="send-button" type="submit" disabled>전송</button>
+          </div>
         </form>
       </footer>
     </div>
