@@ -1063,9 +1063,6 @@ chatForm.addEventListener("submit", async (event) => {
     return;
   }
 
-  messageInput.value = "";
-  messageInput.focus();
-
   try {
     const whisperPayload = parseWhisperCommand(text);
     const targetNickname = parseCallCommand(text);
@@ -1087,6 +1084,10 @@ chatForm.addEventListener("submit", async (event) => {
         return;
       }
 
+      nextComposerValue = `/w ${whisperPayload.targetNickname} `;
+      messageInput.value = nextComposerValue;
+      messageInput.focus();
+
       await push(ref(database, roomPath("messages")), {
         type: "whisper",
         nickname: state.nickname,
@@ -1094,8 +1095,6 @@ chatForm.addEventListener("submit", async (event) => {
         text: whisperPayload.whisperText,
         createdAt: serverTimestamp(),
       });
-
-      nextComposerValue = `/w ${whisperPayload.targetNickname} `;
     } else if (targetNickname) {
       if (targetNickname === state.nickname) {
         showStatus("본인은 호출할 수 없습니다.");
@@ -1107,6 +1106,9 @@ chatForm.addEventListener("submit", async (event) => {
         return;
       }
 
+      messageInput.value = "";
+      messageInput.focus();
+
       await push(ref(database, roomPath("messages")), {
         type: "system",
         systemType: "call",
@@ -1117,6 +1119,9 @@ chatForm.addEventListener("submit", async (event) => {
         createdAt: serverTimestamp(),
       });
     } else {
+      messageInput.value = "";
+      messageInput.focus();
+
       await push(ref(database, roomPath("messages")), {
         type: "chat",
         nickname: state.nickname,
@@ -1126,8 +1131,10 @@ chatForm.addEventListener("submit", async (event) => {
     }
 
     await refreshOwnPresence();
-    messageInput.value = nextComposerValue;
-    messageInput.focus();
+
+    if (nextComposerValue) {
+      messageInput.focus();
+    }
   } catch (error) {
     console.error(error);
     messageInput.value = text;
